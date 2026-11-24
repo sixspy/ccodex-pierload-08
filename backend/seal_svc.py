@@ -28,7 +28,8 @@ def list_seals(authorization: AuthHeader = None):
 @router.post("/api/seals")
 def create_seal(body: SealIn, authorization: AuthHeader = None):
     user = require_writer(authorization)
-    lock_key = f"ticket:{body.ticket_id}"
+    # 与放行同锁（闸口锁），双会话同票抢闸口写时后到只记争用痕。
+    lock_key = f"gate:{body.ticket_id}"
     with connect() as conn:
         require_lock(conn, lock_key, user)
         try:

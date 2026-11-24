@@ -39,5 +39,21 @@
     "status": "已封闸",
     "generation": 2,
     "created_at": "2026-01-10T08:30:00"
+  },
+  {
+    "ticket_code": "WT-NOSNAP-H08-001",
+    "lane_code": "LN-N-01-IN",
+    "bl_ref": "BL-2026-0105",
+    "vehicle_plate": "鲁Q·H0801",
+    "axle_weights": [
+      {"axle": 1, "w": 9.5},
+      {"axle": 2, "w": 13.0},
+      {"axle": 3, "w": 12.5},
+      {"axle": 4, "w": 8.0}
+    ],
+    "gross_t": 43.0,
+    "status": "已放行",
+    "generation": 1,
+    "created_at": "2026-11-24T08:10:00"
   }
 ]

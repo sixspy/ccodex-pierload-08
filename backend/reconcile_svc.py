@@ -65,7 +65,31 @@ def _reconcile_bl(conn, bl_code: str) -> dict:
            WHERE t.bl_ref=?""",
         (bl_code,),
     ).fetchall()
-    proof_ok = matched and len(seal_rows) >= 1
+    # 齐套口径就闸口：正式放行行必须配上与票最新闸代一致的已封闸快照。
+    released_rows = conn.execute(
+        """SELECT t.id, t.ticket_code, t.generation
+           FROM gate_releases g JOIN weigh_tickets t ON t.id=g.ticket_id
+           WHERE t.bl_ref=? AND g.status='已放行'""",
+        (bl_code,),
+    ).fetchall()
+    releases_missing_snapshot = 0
+    snapshot_complete_releases = 0
+    for r in released_rows:
+        latest = conn.execute(
+            """SELECT 1 FROM gate_seals
+               WHERE ticket_id=? AND ticket_generation=? AND status='已封闸'
+               LIMIT 1""",
+            (r["id"], r["generation"]),
+        ).fetchone()
+        if latest:
+            snapshot_complete_releases += 1
+        else:
+            releases_missing_snapshot += 1
+    proof_ok = (
+        matched
+        and releases_missing_snapshot == 0
+        and snapshot_complete_releases >= 1
+    )
     return {
         "bl_code": bl_code,
         "declared_gross_t": declared,
@@ -73,6 +97,9 @@ def _reconcile_bl(conn, bl_code: str) -> dict:
         "balanced": matched,
         "proof_ready": proof_ok,
         "seal_count": len(seal_rows),
+        "released_count": len(released_rows),
+        "snapshot_complete_releases": snapshot_complete_releases,
+        "releases_missing_snapshot": releases_missing_snapshot,
         "tickets": [dict(t) for t in tickets],
         "seals": [dict(s) for s in seal_rows],
     }
@@ -109,16 +136,28 @@ def proof_ticket(ticket_code: str, authorization: AuthHeader = None):
             manifest_match = validate_bl_match(
                 float(bl["declared_gross_t"]), float(ticket["gross_t"])
             )
+        latest_snapshot = conn.execute(
+            """SELECT id FROM gate_seals
+               WHERE ticket_id=? AND ticket_generation=? AND status='已封闸'
+               LIMIT 1""",
+            (ticket["id"], ticket["generation"]),
+        ).fetchone()
+        has_latest_snapshot = latest_snapshot is not None
         return {
             "ticket_code": ticket_code,
             "bl_ref": ticket["bl_ref"],
             "gross_t": ticket["gross_t"],
             "manifest_matches_bl": manifest_match,
             "has_seal": seal is not None,
+            "has_latest_snapshot": has_latest_snapshot,
             "seal_generation": seal["ticket_generation"] if seal else None,
             "released": release is not None,
             "overload_closed": overload_closed,
+            # 齐套就闸口：须最新闸代快照在，且无开放超重，放行与快照口径一致。
             "coherent": bool(
-                manifest_match and overload_closed and (seal or release)
+                manifest_match
+                and overload_closed
+                and has_latest_snapshot
+                and release is not None
             ),
         }

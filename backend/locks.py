@@ -28,11 +28,14 @@ def try_acquire(conn, lock_key: str, holder: str) -> bool:
         return True
     if row["holder"] == holder:
         return True
+    # 争用痕独立落盘：后到只记争用，不写业务。
+    # 单独提交，确保外层业务事务随后回滚（HTTPException）时争用痕仍在。
     conn.execute(
         """INSERT INTO contention_log(lock_key,actor,action,detail,created_at)
            VALUES (?,?,?,?,?)""",
         (lock_key, holder, "争用", f"持有者={row['holder']}", now),
     )
+    conn.commit()
     return False
 
 

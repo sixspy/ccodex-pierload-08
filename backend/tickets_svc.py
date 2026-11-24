@@ -80,11 +80,27 @@ def get_ticket(ticket_id: int, authorization: AuthHeader = None):
             "SELECT * FROM gate_releases WHERE ticket_id=? ORDER BY id DESC",
             (ticket_id,),
         ).fetchall()
+        latest_snapshot = conn.execute(
+            """SELECT id FROM gate_seals
+               WHERE ticket_id=? AND ticket_generation=? AND status='已封闸'
+               LIMIT 1""",
+            (ticket_id, row["generation"]),
+        ).fetchone()
+        formal_release = conn.execute(
+            """SELECT id FROM gate_releases
+               WHERE ticket_id=? AND status='已放行' LIMIT 1""",
+            (ticket_id,),
+        ).fetchone()
         return {
             "ticket": data,
             "overload_holds": [dict(h) for h in holds],
             "gate_seals": [dict(s) for s in seals],
             "gate_releases": [dict(r) for r in releases],
+            # 五页同源：齐套标记只由闸口库表事实推导
+            "has_latest_snapshot": latest_snapshot is not None,
+            "released": formal_release is not None,
+            "release_snapshot_complete": formal_release is not None
+            and latest_snapshot is not None,
         }
 
 

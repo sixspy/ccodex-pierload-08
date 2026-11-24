@@ -55,8 +55,21 @@ def validate_ticket_mutable(ticket: dict) -> None:
 
 
 def validate_ticket_sealable(ticket: dict) -> None:
-    if ticket["status"] in ("已封闸", "作废"):
+    # 封闸是放行前置；已放行后不得再逆序写快照（无快照禁放口径，就闸口）。
+    if ticket["status"] in ("已封闸", "已放行", "作废"):
         raise HTTPException(409, "票态已锁定")
+
+
+def validate_latest_gate_snapshot(conn, ticket: dict) -> None:
+    """无快照禁放（甲路径）：仅当存在与票最新闸代一致的已封闸快照才准放行。"""
+    row = conn.execute(
+        """SELECT id FROM gate_seals
+           WHERE ticket_id=? AND ticket_generation=? AND status='已封闸'
+           LIMIT 1""",
+        (ticket["id"], ticket["generation"]),
+    ).fetchone()
+    if not row:
+        raise HTTPException(409, "无最新闸代快照禁放行：放行整笔回滚，正式册零增")
 
 
 def validate_no_open_overload(conn, ticket_id: int) -> None:

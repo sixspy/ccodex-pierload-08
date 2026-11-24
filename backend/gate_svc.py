@@ -1,4 +1,4 @@
-"""闸口放行：须无开放超重。"""
+"""闸口放行：无最新闸代快照禁放（甲路径，裁决当日锁死）。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
@@ -7,7 +7,10 @@ from auth import AuthHeader, require_user, require_writer
 from db import connect, now_iso, write_audit
 from locks import release, require_lock
 from models import GateReleaseIn
-from validators import validate_no_open_overload, validate_ticket_mutable
+from validators import (
+    validate_latest_gate_snapshot,
+    validate_no_open_overload,
+)
 
 router = APIRouter(tags=["gate"])
 
@@ -17,7 +20,12 @@ def list_releases(authorization: AuthHeader = None):
     require_user(authorization)
     with connect() as conn:
         rows = conn.execute(
-            """SELECT g.*, t.ticket_code, t.vehicle_plate, l.lane_code
+            """SELECT g.*, t.ticket_code, t.vehicle_plate, l.lane_code,
+                      t.generation ticket_generation,
+                      EXISTS(SELECT 1 FROM gate_seals s
+                             WHERE s.ticket_id=t.id
+                               AND s.ticket_generation=t.generation
+                               AND s.status='已封闸') AS has_latest_snapshot
                FROM gate_releases g
                JOIN weigh_tickets t ON t.id=g.ticket_id
                JOIN weigh_lanes l ON l.id=g.lane_id
@@ -40,12 +48,15 @@ def release_gate(body: GateReleaseIn, authorization: AuthHeader = None):
             ).fetchone()
             if not ticket:
                 raise HTTPException(404, "过磅票不存在")
-            validate_ticket_mutable(dict(ticket))
-            if ticket["status"] not in ("已裁定", "旁路挂起"):
-                raise HTTPException(409, "票态不允许放行")
+            if ticket["status"] in ("已放行", "作废"):
+                raise HTTPException(409, "票态已锁定")
             if ticket["status"] == "旁路挂起":
                 raise HTTPException(409, "旁路挂起须先闭环")
+            if ticket["status"] not in ("已裁定", "已封闸"):
+                raise HTTPException(409, "票态不允许放行")
             validate_no_open_overload(conn, body.ticket_id)
+            # 无快照禁放：最新闸代快照缺失即拒，本事务不写任何正式行。
+            validate_latest_gate_snapshot(conn, dict(ticket))
             exists = conn.execute(
                 "SELECT id FROM gate_releases WHERE ticket_id=? AND status='已放行'",
                 (body.ticket_id,),

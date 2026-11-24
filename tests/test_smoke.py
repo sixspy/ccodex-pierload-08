@@ -64,17 +64,19 @@ def test_weigh_overload_gate_seal_flow():
     )
     assert close.status_code == 200
     assert close.json()["ticket_adjudicated"] is True
+    # 无快照禁放（甲路径）：先封闸写最新闸代快照，再放行。
+    seal = c.post("/api/seals", headers=h, json={"ticket_id": ticket["id"]})
+    assert seal.status_code == 200
+    assert seal.json()["generation"] == 2
     gate = c.post(
         "/api/gate/release",
         headers=h,
         json={"ticket_id": ticket["id"], "officer": "验收员"},
     )
     assert gate.status_code == 200
-    seal = c.post("/api/seals", headers=h, json={"ticket_id": ticket["id"]})
-    assert seal.status_code == 200
-    assert seal.json()["generation"] == 2
     proof = c.get("/api/proof/ticket/WT-FLOW-001", headers=h).json()
     assert proof["released"] is True
+    assert proof["has_latest_snapshot"] is True
     assert proof["overload_closed"] is True
 
 
@@ -165,11 +167,19 @@ def test_seal_bumps_generation():
         },
     ).json()
     assert ticket["status"] == "已裁定"
-    c.post(
+    # 无快照禁放：未封闸先放行必须被闸口拒（正式册零增）
+    blocked = c.post(
         "/api/gate/release",
         headers=h,
         json={"ticket_id": ticket["id"]},
     )
+    assert blocked.status_code == 409
     seal = c.post("/api/seals", headers=h, json={"ticket_id": ticket["id"]}).json()
     assert seal["generation"] == 2
     assert "闸代=2" in seal["manifest"]
+    gate = c.post(
+        "/api/gate/release",
+        headers=h,
+        json={"ticket_id": ticket["id"]},
+    )
+    assert gate.status_code == 200

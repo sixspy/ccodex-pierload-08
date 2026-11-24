@@ -79,11 +79,26 @@ createApp({
     const adjudicableTickets = computed(() =>
       tickets.value.filter((t) => t.status !== "作废" && t.status !== "已封闸")
     );
-    const releasableTickets = computed(() =>
+    // 封闸（写快照）是放行前置：仅已裁定、未封闸、未放行的票可写快照。
+    const sealableTickets = computed(() =>
       tickets.value.filter((t) => t.status === "已裁定")
     );
-    const sealableTickets = computed(() =>
-      tickets.value.filter((t) => ["已裁定","已放行"].includes(t.status))
+    // 放行只收已封闸（最新闸代快照已在）且尚未放行的票；无快照票不进放行列表。
+    const releasableTickets = computed(() =>
+      tickets.value.filter((t) => t.status === "已封闸")
+    );
+    // 同源：闸口正式放行行是否配上该票最新闸代快照，就后端 gateReleases 的库表字段。
+    const releaseSnapshotMap = computed(() => {
+      const m = {};
+      for (const g of gateReleases.value) {
+        m[g.ticket_id] = g.has_latest_snapshot === 1 || g.has_latest_snapshot === true;
+      }
+      return m;
+    });
+    const releasesMissingSnapshot = computed(() =>
+      gateReleases.value.filter(
+        (g) => g.status === "已放行" && !(g.has_latest_snapshot === 1 || g.has_latest_snapshot === true)
+      )
     );
 
     function fmtT(n) {
@@ -267,6 +282,7 @@ createApp({
       bridgeForm, laneForm, ticketForm, overloadOpenForm, gateForm, sealForm,
       blForm, lineageForm, customsForm, craneForm,
       adjudicableTickets, releasableTickets, sealableTickets,
+      releaseSnapshotMap, releasesMissingSnapshot,
       login, logout, refresh,
       fmtT, ticketClass, shortText,
       createBridge, loadBridgeDetail, createLane, createTicket, loadTicketDetail, selectTicket,

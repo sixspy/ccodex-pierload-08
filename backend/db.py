@@ -464,6 +464,16 @@ def dashboard_stats(conn: sqlite3.Connection) -> dict:
     sealed = conn.execute(
         "SELECT COUNT(*) c FROM gate_seals WHERE status='已封闸'"
     ).fetchone()["c"]
+    # 同源（就闸口）：正式放行行缺失最新闸代快照的笔数
+    released_missing_snapshot = conn.execute(
+        """SELECT COUNT(*) c FROM gate_releases g
+           JOIN weigh_tickets t ON t.id=g.ticket_id
+           WHERE g.status='已放行'
+             AND NOT EXISTS(
+               SELECT 1 FROM gate_seals s
+               WHERE s.ticket_id=t.id AND s.ticket_generation=t.generation
+                 AND s.status='已封闸')"""
+    ).fetchone()["c"]
     bl_count = conn.execute("SELECT COUNT(*) c FROM bl_manifests").fetchone()["c"]
     stubs = {
         "customs_stub_jobs": conn.execute(
@@ -484,6 +494,7 @@ def dashboard_stats(conn: sqlite3.Connection) -> dict:
         "open_overloads": open_holds,
         "gate_releases": released,
         "gate_seals": sealed,
+        "released_missing_snapshot": released_missing_snapshot,
         "bl_manifests": bl_count,
         "side_pending": pending,
         "stubs": stubs,
